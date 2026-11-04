@@ -2,6 +2,7 @@
 const REPO = "pruthvi895/studio-cloud", API = "https://api.github.com/repos/" + REPO + "/contents/";
 const FILES = ["state/youtube.json", "state/qa.json", "state/render.json", "state/schedule.json", "state/heartbeat.json",
   "state/laptop_jobs.json", "state/ig.json", "cmds/results.json", "cmds/laptop.json"];
+const AUTH = "https://casebook-studio-auth.vercel.app/api/gh";
 const S = {}, etag = {}; let tab = "review";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const tok = () => localStorage.getItem("pat");
@@ -75,8 +76,8 @@ const T = {
       `<div class=c>${esc(v.type)} · <span class=${v.ok ? "ok" : "bad"}>${esc(v.msg)}</span><div class=m>${esc(ist(v.at))}</div></div>`).join("") || "No commands yet.";
   },
   settings() {
-    return `<div class=c>GitHub fine-grained token (only repo studio-cloud, Contents read/write). Stored only on this phone.
-      <input id=pat type=password placeholder="github_pat_..."><button data-a="savepat">Save</button> <button class=warn data-a="logout">Sign out</button></div>`;
+    return `<div class=c>${tok() ? "Signed in." : "Sign in to open your studio."}
+      <button data-a="signin">Sign in with GitHub</button> <button class=warn data-a="logout">Sign out</button><div id=sc class=m></div></div>`;
   }
 };
 function render() {
@@ -88,7 +89,7 @@ document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.tab) { tab = b.dataset.tab; return render(); }
   const a = b.dataset.a, d = b.dataset;
-  if (a === "savepat") { localStorage.setItem("pat", $("pat").value.trim()); tab = "review"; render(); return poll(); }
+  if (a === "signin") return signin();
   if (a === "logout") { localStorage.removeItem("pat"); return render(); }
   if (a === "sched") {
     const w = $("w-" + d.v).value; if (!w) return alert("Pick a date/time");
@@ -101,6 +102,22 @@ document.addEventListener("click", async e => {
   if (a === "render") { const i = d.i || $("ri").value.trim(); if (i && confirm("Queue render of " + i + "?")) return send({type: "render", item_id: i}); return; }
   if (a === "note") return send({type: "note", text: $("nt").value});
 });
+async function auth(body) {
+  const r = await fetch(AUTH, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
+  return r.json();
+}
+async function signin() {
+  const c = await auth({op: "code"}); if (!c.user_code) return alert("Sign-in unavailable");
+  $("sc").innerHTML = `Code <b>${esc(c.user_code)}</b> (copied). Approve it on GitHub, then come back.`;
+  try { await navigator.clipboard.writeText(c.user_code); } catch (e) {}
+  window.open("https://github.com/login/device", "_blank");
+  for (let i = 0; i < 180; i++) {
+    await new Promise(r => setTimeout(r, ((c.interval || 5) + 1) * 1000));
+    const t = await auth({op: "token", device_code: c.device_code});
+    if (t.access_token) { localStorage.setItem("pat", t.access_token); tab = "review"; render(); return poll(); }
+    if (t.error || ["expired_token", "access_denied"].includes(t.pending)) return ($("sc").textContent = "Sign-in failed: " + (t.error || t.pending));
+  }
+}
 render(); poll(); setInterval(poll, 15000);
 document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && poll());
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
