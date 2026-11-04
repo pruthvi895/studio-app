@@ -34,13 +34,20 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-vi.mock('@capacitor-community/http', () => ({
-  Http: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-  },
-}));
+vi.mock('@capacitor/core', async () => {
+  const actual = await vi.importActual<typeof import('@capacitor/core')>('@capacitor/core');
+  return {
+    ...actual,
+    CapacitorHttp: {
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+      request: vi.fn(),
+    },
+  };
+});
 
 vi.mock('@capacitor/preferences', () => ({
   Preferences: {

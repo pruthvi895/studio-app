@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { COULD_NOT_REACH_GITHUB, friendlyError } from '../lib/errors';
 import { openExternal } from '../lib/openExternal';
 import { decidePoll, deviceLoginUrl, nextPollInterval } from '../lib/poll';
 import { GitHubService } from '../services/github';
@@ -68,7 +69,7 @@ export function SignIn({ onSignIn }: SignInProps) {
               await onSignIn(token);
             } catch (err) {
               if (generation.current !== gen) return;
-              fail(gen, err instanceof Error ? err.message : 'Could not verify the account.');
+              fail(gen, friendlyError(err, 'Could not verify the account.'));
             }
             return;
           }
@@ -79,7 +80,7 @@ export function SignIn({ onSignIn }: SignInProps) {
             }, decision.intervalSeconds * 1000);
             return;
           case 'fail':
-            fail(gen, decision.message);
+            fail(gen, friendlyError(decision.message, 'Sign-in could not be completed.'));
             return;
           default: {
             const exhaustive: never = decision;
@@ -88,7 +89,7 @@ export function SignIn({ onSignIn }: SignInProps) {
         }
       } catch (err) {
         if (generation.current !== gen) return;
-        fail(gen, err instanceof Error ? err.message : 'Could not reach GitHub.');
+        fail(gen, friendlyError(err, COULD_NOT_REACH_GITHUB));
       }
     };
 
@@ -116,7 +117,7 @@ export function SignIn({ onSignIn }: SignInProps) {
     } catch (err) {
       if (generation.current !== gen) return;
       busy.current = false;
-      setError(err instanceof Error ? err.message : 'Could not start sign-in.');
+      setError(friendlyError(err, COULD_NOT_REACH_GITHUB));
       setPhase('error');
     }
   };

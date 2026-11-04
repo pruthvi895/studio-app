@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Http } from '@capacitor-community/http';
+import { CapacitorHttp } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { decidePoll } from '../lib/poll';
 import { GitHubService } from './github';
@@ -13,8 +13,8 @@ describe('GitHubService', () => {
     vi.mocked(Preferences.remove).mockResolvedValue(undefined);
   });
 
-  it('should start device flow', async () => {
-    vi.mocked(Http.post).mockResolvedValueOnce({
+  it('starts device flow with a non-null params object so Android does not NPE', async () => {
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({
       status: 200,
       data: {
         device_code: 'test_device_code',
@@ -28,15 +28,33 @@ describe('GitHubService', () => {
     const result = await GitHubService.startDeviceFlow();
 
     expect(result.user_code).toBe('TEST-1234');
-    expect(Http.post).toHaveBeenCalledWith({
-      url: 'https://github.com/login/device/code',
-      headers: expect.any(Object),
-      data: { client_id: 'Iv23ctaY9RgSDdphWZmJ' },
-    });
+    const options = vi.mocked(CapacitorHttp.post).mock.calls[0]?.[0];
+    expect(options?.url).toBe('https://github.com/login/device/code');
+    expect(options?.data).toEqual({ client_id: 'Iv23ctaY9RgSDdphWZmJ' });
+    // Community HTTP 1.4.1 calls params.keys() before opening the socket.
+    // A missing params object is a Java null and is rejected as "NullPointerException".
+    expect(options?.params).toBeTypeOf('object');
+    expect(options?.params).not.toBeNull();
+    expect(options?.headers).toBeTypeOf('object');
+    expect(options?.headers).not.toBeNull();
+  });
+
+  it('turns a null device-code body into a readable error instead of an exception name', async () => {
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({ status: 200, data: null } as never);
+    await expect(GitHubService.startDeviceFlow()).rejects.toThrow(
+      'GitHub did not return a device code.'
+    );
+  });
+
+  it('maps a NullPointerException from the token poll to a readable error', async () => {
+    vi.mocked(CapacitorHttp.post).mockRejectedValueOnce(new Error('NullPointerException'));
+    await expect(GitHubService.pollForToken('device_code_123')).rejects.toThrow(
+      'Could not reach GitHub. Check the connection and try again.'
+    );
   });
 
   it('should poll for token', async () => {
-    vi.mocked(Http.post).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({
       status: 200,
       data: {
         access_token: 'test_token',
@@ -49,7 +67,7 @@ describe('GitHubService', () => {
   });
 
   it('should verify and store token for pruthvi895', async () => {
-    vi.mocked(Http.get).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.get).mockResolvedValueOnce({
       status: 200,
       data: {
         login: 'pruthvi895',
@@ -68,7 +86,7 @@ describe('GitHubService', () => {
   });
 
   it('should reject token for other users', async () => {
-    vi.mocked(Http.get).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.get).mockResolvedValueOnce({
       status: 200,
       data: {
         login: 'other_user',
@@ -83,7 +101,7 @@ describe('GitHubService', () => {
   });
 
   it('should fetch file from repo', async () => {
-    vi.mocked(Http.get)
+    vi.mocked(CapacitorHttp.get)
       .mockResolvedValueOnce({
         status: 200,
         data: {
@@ -101,7 +119,7 @@ describe('GitHubService', () => {
     const data = await GitHubService.fetchFile('state/youtube.json');
 
     expect(data).toEqual({ videos: [] });
-    expect(Http.get).toHaveBeenCalledWith(
+    expect(CapacitorHttp.get).toHaveBeenCalledWith(
       expect.objectContaining({
         url: 'https://api.github.com/repos/pruthvi895/studio-cloud/contents/state/youtube.json',
       })
@@ -109,7 +127,7 @@ describe('GitHubService', () => {
   });
 
   it('parses a string device-code body and a pending token poll', async () => {
-    vi.mocked(Http.post).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({
       status: 200,
       data: JSON.stringify({
         device_code: 'dev',
@@ -124,7 +142,7 @@ describe('GitHubService', () => {
     expect(flow.user_code).toBe('ABCD-1234');
     expect(flow.interval).toBe(5);
 
-    vi.mocked(Http.post).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({
       status: 200,
       data: JSON.stringify({ error: 'authorization_pending' }),
     } as never);
@@ -133,7 +151,7 @@ describe('GitHubService', () => {
   });
 
   it('parses a form-encoded success, expiry, and denial', async () => {
-    vi.mocked(Http.post).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({
       status: 200,
       data: 'access_token=tok_123&token_type=bearer',
     } as never);
@@ -141,14 +159,14 @@ describe('GitHubService', () => {
     expect(success.access_token).toBe('tok_123');
     expect(decidePoll(success, 5).action).toBe('success');
 
-    vi.mocked(Http.post).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({
       status: 200,
       data: { error: 'expired_token' },
     } as never);
     const expired = await GitHubService.pollForToken('dev');
     expect(decidePoll(expired, 5)).toMatchObject({ action: 'fail' });
 
-    vi.mocked(Http.post).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({
       status: 200,
       data: { error: 'access_denied', error_description: 'nope' },
     } as never);
@@ -157,7 +175,7 @@ describe('GitHubService', () => {
   });
 
   it('does not store a token for the wrong GitHub user', async () => {
-    vi.mocked(Http.get).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.get).mockResolvedValueOnce({
       status: 200,
       data: { login: 'someoneelse', id: 2, avatar_url: '' },
     } as never);
@@ -187,14 +205,14 @@ describe('GitHubService', () => {
     await GitHubService.initialize();
     expect(GitHubService.isAuthenticated()).toBe(false);
 
-    vi.mocked(Http.get).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.get).mockResolvedValueOnce({
       status: 200,
       data: { login: 'pruthvi895', id: 1, avatar_url: '' },
     } as never);
     await GitHubService.verifyAndStoreToken('real-token');
     const lost = vi.fn();
     const unsubscribe = GitHubService.onAuthLost(lost);
-    vi.mocked(Http.get).mockResolvedValueOnce({ status: 401, data: '' } as never);
+    vi.mocked(CapacitorHttp.get).mockResolvedValueOnce({ status: 401, data: '' } as never);
     await expect(GitHubService.fetchFile('state/qa.json')).rejects.toThrow('Authentication failed');
     expect(lost).toHaveBeenCalledTimes(1);
     expect(GitHubService.isAuthenticated()).toBe(false);

@@ -1,5 +1,6 @@
-import { Http } from '@capacitor-community/http';
+import { CapacitorHttp, type HttpOptions } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
+import { COULD_NOT_REACH_GITHUB, friendlyError } from '../lib/errors';
 import { asString, isRecord } from '../lib/guards';
 import { asTokenResponse, parseHttpData } from '../lib/httpBody';
 import type { DeviceFlowResponse, GitHubUser, TokenResponse } from '../types';
@@ -29,44 +30,57 @@ export class GitHubService {
   }
 
   static async startDeviceFlow(): Promise<DeviceFlowResponse> {
-    const response = await Http.post({
-      url: DEVICE_CODE_URL,
-      headers: formHeaders(),
-      data: { client_id: CLIENT_ID },
-    });
+    try {
+      const response = await CapacitorHttp.post(
+        formRequest(DEVICE_CODE_URL, { client_id: CLIENT_ID })
+      );
 
-    if (response.status !== 200) {
-      throw new Error('Failed to start device flow');
+      if (response.status !== 200) {
+        throw new Error('GitHub could not start sign-in. Try again.');
+      }
+
+      return asDeviceFlow(parseHttpData(response.data));
+    } catch (error) {
+      throw new Error(friendlyError(error, COULD_NOT_REACH_GITHUB));
     }
-
-    return asDeviceFlow(parseHttpData(response.data));
   }
 
   static async pollForToken(deviceCode: string): Promise<TokenResponse> {
-    const response = await Http.post({
-      url: ACCESS_TOKEN_URL,
-      headers: formHeaders(),
-      data: {
-        client_id: CLIENT_ID,
-        device_code: deviceCode,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      },
-    });
+    try {
+      const response = await CapacitorHttp.post(
+        formRequest(ACCESS_TOKEN_URL, {
+          client_id: CLIENT_ID,
+          device_code: deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        })
+      );
 
-    const body = asTokenResponse(response.data);
-    if ((response.status < 200 || response.status >= 300) && !body.access_token && !body.error) {
-      throw new Error('Could not reach GitHub.');
+      const body = asTokenResponse(response.data);
+      if ((response.status < 200 || response.status >= 300) && !body.access_token && !body.error) {
+        throw new Error(COULD_NOT_REACH_GITHUB);
+      }
+      return body;
+    } catch (error) {
+      throw new Error(friendlyError(error, COULD_NOT_REACH_GITHUB));
     }
-    return body;
   }
 
   static async verifyAndStoreToken(accessToken: string): Promise<GitHubUser> {
+    try {
+      return await this.readAndStoreUser(accessToken);
+    } catch (error) {
+      throw new Error(friendlyError(error, 'Could not verify the account.'));
+    }
+  }
+
+  private static async readAndStoreUser(accessToken: string): Promise<GitHubUser> {
     const token = accessToken.trim();
     if (!token) throw new Error('Invalid token');
 
-    const response = await Http.get({
+    const response = await CapacitorHttp.get({
       url: 'https://api.github.com/user',
       headers: apiHeaders(token),
+      params: {},
     });
 
     const parsed = parseHttpData(response.data);
@@ -120,12 +134,13 @@ export class GitHubService {
       throw new Error('Not authenticated');
     }
 
-    const response = await Http.get({
+    const response = await CapacitorHttp.get({
       url: `https://api.github.com/repos/${REPO}/contents/${path}`,
       headers: {
         ...apiHeaders(this.token),
         Accept: 'application/vnd.github.raw+json',
       },
+      params: {},
     });
 
     if (response.status === 401) {
@@ -151,12 +166,13 @@ export class GitHubService {
 
     const contentBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(content))));
 
-    const response = await Http.put({
+    const response = await CapacitorHttp.put({
       url: `https://api.github.com/repos/${REPO}/contents/${path}`,
       headers: {
         ...apiHeaders(this.token),
         'Content-Type': 'application/json',
       },
+      params: {},
       data: {
         message,
         content: contentBase64,
@@ -182,6 +198,17 @@ export class GitHubService {
     }
     for (const listener of this.authListeners) listener();
   }
+}
+
+function formRequest(url: string, data: Record<string, string>): HttpOptions {
+  return {
+    url,
+    headers: formHeaders(),
+    // Always an object. The Capacitor 3 community HTTP plugin calls params.keys()
+    // and rejects with the message "NullPointerException" when this field is omitted.
+    params: {},
+    data,
+  };
 }
 
 function formHeaders(): Record<string, string> {

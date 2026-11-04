@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Http, type HttpOptions, type HttpResponse } from '@capacitor-community/http';
+import { CapacitorHttp, type HttpOptions, type HttpResponse } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sampleStudioState } from './fixtures/studio';
@@ -21,7 +21,7 @@ const files: Record<string, unknown> = {
 };
 
 function mockStudio(overrides?: Record<string, number>): void {
-  vi.mocked(Http.get).mockImplementation(async (options: HttpOptions) => {
+  vi.mocked(CapacitorHttp.get).mockImplementation(async (options: HttpOptions) => {
     const path = options.url.split('/contents/')[1] ?? '';
     if (overrides?.[path]) {
       return { status: overrides[path], data: '', headers: {}, url: options.url } as HttpResponse;
@@ -89,7 +89,7 @@ describe('App', () => {
   it('shows an empty studio and lets a load error be dismissed', async () => {
     const user = userEvent.setup();
     vi.mocked(Preferences.get).mockResolvedValue({ value: 'saved-token' });
-    vi.mocked(Http.get).mockResolvedValue({ status: 404, data: null, headers: {}, url: '' } as HttpResponse);
+    vi.mocked(CapacitorHttp.get).mockResolvedValue({ status: 404, data: null, headers: {}, url: '' } as HttpResponse);
     const empty = render(<App />);
     expect((await screen.findAllByText('Nothing waiting')).length).toBeGreaterThan(0);
     await user.click(screen.getByRole('button', { name: 'Activity' }));

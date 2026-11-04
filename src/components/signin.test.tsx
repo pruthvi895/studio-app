@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { Http } from '@capacitor-community/http';
+import { CapacitorHttp } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GitHubService } from '../services/github';
@@ -41,7 +41,7 @@ describe('SignIn', () => {
 
   it('shows the device code while a poll is pending, then completes', async () => {
     const onSignIn = vi.fn(async () => undefined);
-    vi.mocked(Http.post)
+    vi.mocked(CapacitorHttp.post)
       .mockResolvedValueOnce({ status: 200, data: flow } as never)
       .mockResolvedValueOnce({ status: 200, data: { error: 'authorization_pending' } } as never)
       .mockResolvedValueOnce({ status: 200, data: { access_token: 'tok-1' } } as never);
@@ -60,7 +60,7 @@ describe('SignIn', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
-    expect(Http.post).toHaveBeenCalledTimes(2);
+    expect(CapacitorHttp.post).toHaveBeenCalledTimes(2);
     expect(screen.getByText('WDH7-CODE')).toBeTruthy();
     expect(onSignIn).not.toHaveBeenCalled();
 
@@ -71,7 +71,7 @@ describe('SignIn', () => {
   });
 
   it('stops when the code expires or GitHub denies access', async () => {
-    vi.mocked(Http.post)
+    vi.mocked(CapacitorHttp.post)
       .mockResolvedValueOnce({ status: 200, data: flow } as never)
       .mockResolvedValueOnce({ status: 200, data: { error: 'expired_token' } } as never);
     const { unmount } = render(<SignIn onSignIn={async () => undefined} />);
@@ -86,7 +86,7 @@ describe('SignIn', () => {
     expect(screen.queryByText('WDH7-CODE')).toBeNull();
     unmount();
 
-    vi.mocked(Http.post)
+    vi.mocked(CapacitorHttp.post)
       .mockResolvedValueOnce({ status: 200, data: flow } as never)
       .mockResolvedValueOnce({ status: 200, data: { error: 'access_denied' } } as never);
     render(<SignIn onSignIn={async () => undefined} />);
@@ -101,10 +101,10 @@ describe('SignIn', () => {
   });
 
   it('rejects a GitHub user other than pruthvi895 and does not store the token', async () => {
-    vi.mocked(Http.post)
+    vi.mocked(CapacitorHttp.post)
       .mockResolvedValueOnce({ status: 200, data: flow } as never)
       .mockResolvedValueOnce({ status: 200, data: { access_token: 'someone-elses-token' } } as never);
-    vi.mocked(Http.get).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.get).mockResolvedValueOnce({
       status: 200,
       data: { login: 'someoneelse', id: 9, avatar_url: '' },
     } as never);
@@ -130,10 +130,10 @@ describe('SignIn', () => {
   });
 
   it('stores the token when the signed-in user is pruthvi895', async () => {
-    vi.mocked(Http.post)
+    vi.mocked(CapacitorHttp.post)
       .mockResolvedValueOnce({ status: 200, data: flow } as never)
       .mockResolvedValueOnce({ status: 200, data: { access_token: 'owner-token' } } as never);
-    vi.mocked(Http.get).mockResolvedValueOnce({
+    vi.mocked(CapacitorHttp.get).mockResolvedValueOnce({
       status: 200,
       data: { login: 'pruthvi895', id: 1, avatar_url: 'https://example.com/a.png' },
     } as never);
@@ -157,8 +157,21 @@ describe('SignIn', () => {
     expect(GitHubService.getToken()).toBe('owner-token');
   });
 
+  it('shows a readable error when the native HTTP plugin rejects with NullPointerException', async () => {
+    vi.mocked(CapacitorHttp.post).mockRejectedValueOnce(new Error('NullPointerException'));
+    render(<SignIn onSignIn={async () => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const alert = screen.getByRole('alert').textContent ?? '';
+    expect(alert).toBe('Could not reach GitHub. Check the connection and try again.');
+    expect(alert).not.toMatch(/NullPointerException|\bException\b|TypeError|ReferenceError/);
+    expect(screen.queryByText('WDH7-CODE')).toBeNull();
+  });
+
   it('cancels polling and surfaces a start failure', async () => {
-    vi.mocked(Http.post).mockResolvedValueOnce({ status: 200, data: flow } as never);
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({ status: 200, data: flow } as never);
     const view = render(<SignIn onSignIn={async () => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
     await act(async () => {
@@ -170,10 +183,10 @@ describe('SignIn', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20000);
     });
-    expect(Http.post).toHaveBeenCalledTimes(1);
+    expect(CapacitorHttp.post).toHaveBeenCalledTimes(1);
     view.unmount();
 
-    vi.mocked(Http.post).mockRejectedValueOnce(new Error('offline'));
+    vi.mocked(CapacitorHttp.post).mockRejectedValueOnce(new Error('offline'));
     render(<SignIn onSignIn={async () => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
     await act(async () => {
@@ -185,7 +198,7 @@ describe('SignIn', () => {
 
   it('ignores a second tap while GitHub is being contacted', async () => {
     let resolvePost: (value: unknown) => void = () => undefined;
-    vi.mocked(Http.post).mockImplementationOnce(
+    vi.mocked(CapacitorHttp.post).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           resolvePost = resolve;
@@ -195,7 +208,7 @@ describe('SignIn', () => {
     const button = screen.getByRole('button', { name: 'Sign in with GitHub' });
     fireEvent.click(button);
     fireEvent.click(button);
-    expect(Http.post).toHaveBeenCalledTimes(1);
+    expect(CapacitorHttp.post).toHaveBeenCalledTimes(1);
     await act(async () => {
       resolvePost({ status: 200, data: flow });
       await Promise.resolve();
@@ -205,7 +218,7 @@ describe('SignIn', () => {
 
   it('opens GitHub without leaving the WebView via target=_blank', async () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
-    vi.mocked(Http.post).mockResolvedValueOnce({ status: 200, data: flow } as never);
+    vi.mocked(CapacitorHttp.post).mockResolvedValueOnce({ status: 200, data: flow } as never);
     render(<SignIn onSignIn={async () => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
     await act(async () => {
