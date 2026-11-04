@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Debug builds paint in software so headless emulator screenshots include the WebView. -->
+    <application android:hardwareAccelerated="false" tools:replace="android:hardwareAccelerated" />
+</manifest>
